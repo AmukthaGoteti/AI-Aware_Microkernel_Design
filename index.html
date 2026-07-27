@@ -1,0 +1,1710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI-Aware Microkernel OS — Simulation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?external=react"
+  }
+}
+</script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #020617; }
+  #root { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+  @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+  .animate-ping { animation: ping 1.4s cubic-bezier(0,0,0.2,1) infinite; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useRef, useEffect, useReducer, useCallback } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  Activity, Cpu, Layers, MessageSquare, Zap, HardDrive, Lock, FolderTree,
+  Wifi, Brain, Play, Pause, Settings2, AlertTriangle, Info, Send, Trash2,
+  Plus, X, ChevronRight, Sparkles, Radio, Keyboard, Monitor, Database,
+  Gauge, RefreshCw, ShieldAlert, CheckCircle2, Timer, Network as NetworkIcon
+} from "lucide-react";
+
+
+/* ============================================================================
+   AI-AWARE MICROKERNEL OS SIMULATION
+   A capstone-style, single-file simulation of a microkernel: scheduler,
+   memory manager, IPC, interrupts, devices, deadlock detection, filesystem,
+   networking, and an AI engine that predicts, explains and recommends.
+   ============================================================================ */
+
+/* --------------------------- constants --------------------------- */
+
+const NUM_FRAMES = 8;
+const PAGES_PER_PROC = 10;
+const MAX_LOG = 60;
+const MAX_HISTORY = 40;
+const NAME_POOL = [
+  "compiler", "render-svc", "net-daemon", "db-worker", "ui-thread",
+  "sensor-poll", "ml-infer", "backup-svc", "audio-mix", "crypto-job",
+  "log-flush", "cache-warm", "video-enc", "auth-svc", "sched-test"
+];
+const PID_COLORS = ["blue", "amber", "emerald", "violet", "rose", "cyan", "orange", "pink", "lime", "indigo"];
+
+const TABS = [
+  { id: "dashboard", label: "Dashboard", icon: Activity },
+  { id: "scheduler", label: "Scheduler", icon: Cpu },
+  { id: "memory", label: "Memory", icon: Layers },
+  { id: "ipc", label: "IPC", icon: MessageSquare },
+  { id: "interrupts", label: "Interrupts", icon: Zap },
+  { id: "devices", label: "Devices", icon: HardDrive },
+  { id: "deadlock", label: "Deadlock", icon: Lock },
+  { id: "filesystem", label: "Filesystem", icon: FolderTree },
+  { id: "network", label: "Network", icon: NetworkIcon },
+  { id: "ai", label: "AI assistant", icon: Brain },
+];
+
+/* --------------------------- small utils --------------------------- */
+
+let __uid = 0;
+const nextUid = () => ++__uid;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const rnd = (n) => Math.floor(Math.random() * n);
+const pick = (arr) => arr[rnd(arr.length)];
+const round1 = (n) => Math.round(n * 10) / 10;
+const round2 = (n) => Math.round(n * 100) / 100;
+
+function colorClasses(color) {
+  const map = {
+    blue:    { bg: "bg-blue-500",    text: "text-blue-400",    border: "border-blue-500/40",    soft: "bg-blue-500/10" },
+    amber:   { bg: "bg-amber-500",   text: "text-amber-400",   border: "border-amber-500/40",   soft: "bg-amber-500/10" },
+    emerald: { bg: "bg-emerald-500", text: "text-emerald-400", border: "border-emerald-500/40", soft: "bg-emerald-500/10" },
+    violet:  { bg: "bg-violet-500",  text: "text-violet-400",  border: "border-violet-500/40",  soft: "bg-violet-500/10" },
+    rose:    { bg: "bg-rose-500",    text: "text-rose-400",    border: "border-rose-500/40",    soft: "bg-rose-500/10" },
+    cyan:    { bg: "bg-cyan-500",    text: "text-cyan-400",    border: "border-cyan-500/40",    soft: "bg-cyan-500/10" },
+    orange:  { bg: "bg-orange-500",  text: "text-orange-400",  border: "border-orange-500/40",  soft: "bg-orange-500/10" },
+    pink:    { bg: "bg-pink-500",    text: "text-pink-400",    border: "border-pink-500/40",    soft: "bg-pink-500/10" },
+    lime:    { bg: "bg-lime-500",    text: "text-lime-400",    border: "border-lime-500/40",    soft: "bg-lime-500/10" },
+    indigo:  { bg: "bg-indigo-500",  text: "text-indigo-400",  border: "border-indigo-500/40",  soft: "bg-indigo-500/10" },
+    sky:     { bg: "bg-sky-500",     text: "text-sky-400",     border: "border-sky-500/40",     soft: "bg-sky-500/10" },
+    teal:    { bg: "bg-teal-500",    text: "text-teal-400",    border: "border-teal-500/40",    soft: "bg-teal-500/10" },
+    slate:   { bg: "bg-slate-500",   text: "text-slate-400",   border: "border-slate-700",      soft: "bg-slate-500/10" },
+  };
+  return map[color] || map.blue;
+}
+
+/* Fixed subsystem identity — used consistently across nav, panel accents, and badges
+   so a color always means the same subsystem everywhere in the app. */
+const SUBSYSTEM_ACCENT = {
+  dashboard: "cyan", scheduler: "cyan", memory: "emerald", ipc: "sky",
+  interrupts: "amber", devices: "orange", deadlock: "rose",
+  filesystem: "teal", network: "indigo", ai: "violet",
+};
+
+/* --------------------------- AI: linear regression (trained at boot) --------------------------- */
+/* Solves normal equations (X^T X) w = X^T y for a 3-feature model: bias, waitTime, histAvgBurst.
+   Trained once on a synthetic dataset generated from a known-noisy relationship, so the
+   "AI scheduler" tab can show a real, if small, trained model rather than a canned constant. */
+
+function solve3x3(A, b) {
+  // Gaussian elimination with partial pivoting for a 3x3 system.
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const d = M[col][col] || 1e-9;
+    for (let c = col; c < 4; c++) M[col][c] /= d;
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      for (let c = col; c < 4; c++) M[r][c] -= f * M[col][c];
+    }
+  }
+  return [M[0][3], M[1][3], M[2][3]];
+}
+
+function trainBurstRegressor() {
+  // synthetic training set: actualBurst ~= 2 + 0.15*wait - 0.6*histAvg + noise (an inverse
+  // relationship: processes with a low historical average tend to run short again)
+  const samples = [];
+  for (let i = 0; i < 60; i++) {
+    const wait = rnd(20);
+    const histAvg = 1 + Math.random() * 8;
+    const noise = (Math.random() - 0.5) * 1.5;
+    const y = Math.max(0.5, 2 + 0.15 * wait + 0.55 * histAvg + noise);
+    samples.push([1, wait, histAvg, y]);
+  }
+  // Normal equations for [w0, w1, w2]
+  const XtX = [[0,0,0],[0,0,0],[0,0,0]];
+  const Xty = [0,0,0];
+  for (const [x0, x1, x2, y] of samples) {
+    const x = [x0, x1, x2];
+    for (let i = 0; i < 3; i++) {
+      Xty[i] += x[i] * y;
+      for (let j = 0; j < 3; j++) XtX[i][j] += x[i] * x[j];
+    }
+  }
+  const w = solve3x3(XtX, Xty);
+  // R^2 on the training set
+  const meanY = samples.reduce((a, s) => a + s[3], 0) / samples.length;
+  let ssRes = 0, ssTot = 0;
+  for (const [x0, x1, x2, y] of samples) {
+    const pred = w[0] * x0 + w[1] * x1 + w[2] * x2;
+    ssRes += (y - pred) ** 2;
+    ssTot += (y - meanY) ** 2;
+  }
+  const r2 = clamp(1 - ssRes / (ssTot || 1), 0, 1);
+  return { w, r2 };
+}
+
+function regressorPredict(model, wait, histAvg) {
+  const [w0, w1, w2] = model.w;
+  return Math.max(0.3, w0 + w1 * wait + w2 * histAvg);
+}
+
+/* --------------------------- AI: order-1 Markov page predictor --------------------------- */
+
+function markovUpdate(model, from, to) {
+  if (from == null) return;
+  const key = from;
+  if (!model[key]) model[key] = {};
+  model[key][to] = (model[key][to] || 0) + 1;
+}
+
+function markovPredict(model, from) {
+  const row = model[from];
+  if (!row) return null;
+  let best = null, bestCount = -1, total = 0;
+  for (const k in row) total += row[k];
+  for (const k in row) {
+    if (row[k] > bestCount) { bestCount = row[k]; best = k; }
+  }
+  if (best == null) return null;
+  return { page: Number(best), confidence: bestCount / total };
+}
+
+/* --------------------------- process factory --------------------------- */
+
+function createProcess(t, opts = {}) {
+  const pid = nextUid();
+  const totalBurst = opts.burst ?? (2 + rnd(9));
+  const priority = opts.priority ?? (1 + rnd(5));
+  return {
+    pid,
+    name: `${pick(NAME_POOL)}-${pid}`,
+    color: PID_COLORS[pid % PID_COLORS.length],
+    state: "new",
+    arrival: t,
+    priority,
+    basePriority: priority,
+    totalBurst,
+    remaining: totalBurst,
+    bursts: [],
+    predictedBurst: totalBurst,
+    ewmaPredicted: totalBurst,
+    waitTime: 0,
+    turnaround: null,
+    quantumUsed: 0,
+    mlfqLevel: 0,
+    lastPage: null,
+    faults: 0,
+    hits: 0,
+    finishedAt: null,
+  };
+}
+
+/* --------------------------- deadlock: banker's algorithm --------------------------- */
+
+function bankersSafety(available, allocation, max, names) {
+  const n = allocation.length, m = available.length;
+  const work = [...available];
+  const finish = new Array(n).fill(false);
+  const need = allocation.map((a, i) => a.map((v, j) => max[i][j] - v));
+  const sequence = [];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (let i = 0; i < n; i++) {
+      if (finish[i]) continue;
+      let canRun = true;
+      for (let j = 0; j < m; j++) if (need[i][j] > work[j]) { canRun = false; break; }
+      if (canRun) {
+        for (let j = 0; j < m; j++) work[j] += allocation[i][j];
+        finish[i] = true;
+        sequence.push(names[i]);
+        progress = true;
+      }
+    }
+  }
+  const safe = finish.every(Boolean);
+  return { safe, sequence, need };
+}
+
+/* --------------------------- presentational bits --------------------------- */
+
+function Panel({ title, icon: Icon, accent = "slate", right, children, className = "" }) {
+  const c = colorClasses(accent);
+  return (
+    <div className={`group rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur-sm overflow-hidden transition-colors hover:border-slate-700 ${className}`}>
+      <div className={`h-[2px] w-full ${c.bg} opacity-70`} />
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/80">
+        <div className="flex items-center gap-2">
+          {Icon && (
+            <span className={`w-5 h-5 rounded-md flex items-center justify-center ${c.soft}`}>
+              <Icon size={12} className={c.text} />
+            </span>
+          )}
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">{title}</span>
+        </div>
+        {right}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, accent = "cyan", icon: Icon }) {
+  const c = colorClasses(accent);
+  return (
+    <div className="relative rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2.5 overflow-hidden">
+      <div className={`absolute left-0 top-0 bottom-0 w-[2px] ${c.bg} opacity-70`} />
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
+        {Icon && <Icon size={11} className={`${c.text} opacity-70`} />}
+      </div>
+      <div className={`font-mono text-xl font-semibold ${c.text} tabular-nums`}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-500 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function Badge({ children, accent = "slate" }) {
+  const c = colorClasses(accent);
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono ${c.soft} ${c.text} border ${c.border}`}>
+      {children}
+    </span>
+  );
+}
+
+function ProgressBar({ value, max, accent = "cyan", h = "h-1.5" }) {
+  const c = colorClasses(accent);
+  const pct = clamp((value / (max || 1)) * 100, 0, 100);
+  return (
+    <div className={`w-full ${h} bg-slate-800 rounded-full overflow-hidden`}>
+      <div className={`${c.bg} h-full rounded-full transition-all duration-300`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function Sparkline({ data, width = 240, height = 48, color = "#22d3ee", fill = true }) {
+  if (!data || data.length < 2) return <svg width={width} height={height} />;
+  const max = Math.max(1, ...data);
+  const min = Math.min(...data);
+  const range = Math.max(0.001, max - min);
+  const step = width / (data.length - 1);
+  const pts = data.map((v, i) => [i * step, height - ((v - min) / range) * (height - 4) - 2]);
+  const line = pts.map((p) => p.join(",")).join(" ");
+  const area = `0,${height} ` + line + ` ${width},${height}`;
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      {fill && <polygon points={area} fill={color} opacity="0.12" />}
+      <polyline points={line} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function RingGauge({ value, max = 100, size = 74, color = "#22d3ee", label }) {
+  const r = size / 2 - 6;
+  const c = 2 * Math.PI * r;
+  const pct = clamp(value / max, 0, 1);
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#1e293b" strokeWidth="6" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth="6"
+          strokeDasharray={c} strokeDashoffset={c * (1 - pct)} strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dashoffset 400ms ease" }}
+        />
+        <text x="50%" y="52%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-100 font-mono" fontSize="15" fontWeight="600">
+          {Math.round(value)}
+        </text>
+      </svg>
+      {label && <div className="text-[10px] text-slate-500 mt-1 text-center">{label}</div>}
+    </div>
+  );
+}
+
+function LogList({ items, height = "h-52" }) {
+  const levelColor = { info: "text-slate-400", ok: "text-emerald-400", warn: "text-amber-400", crit: "text-rose-400", ai: "text-violet-400" };
+  return (
+    <div className={`${height} overflow-y-auto font-mono text-[11px] space-y-0.5 pr-1`}>
+      {items.length === 0 && <div className="text-slate-600 italic">no events yet</div>}
+      {items.map((l, i) => (
+        <div key={i} className="flex gap-2 leading-relaxed">
+          <span className="text-slate-600 shrink-0">{String(l.t).padStart(4, "0")}</span>
+          <span className={`shrink-0 ${levelColor[l.level] || "text-slate-400"}`}>[{l.source}]</span>
+          <span className="text-slate-300">{l.msg}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* --------------------------- initial simulation state --------------------------- */
+
+function makeInitialSim() {
+  const t = 0;
+  const processes = [];
+  for (let i = 0; i < 5; i++) {
+    const p = createProcess(t, { burst: 2 + rnd(9) });
+    p.state = "ready";
+    processes.push(p);
+  }
+  const readyQueue = processes.map((p) => p.pid);
+
+  const frames = Array.from({ length: NUM_FRAMES }, () => null);
+  const fifoQueue = [];
+
+  const deadlockNames = ["R-alloc-A", "R-alloc-B", "R-alloc-C", "R-alloc-D"];
+  const deadlockMax = [[7, 5, 3], [3, 2, 2], [9, 0, 2], [4, 2, 2]];
+  const deadlockAlloc = [[0, 1, 0], [2, 0, 0], [3, 0, 2], [2, 1, 1]];
+  const deadlockTotal = [10, 5, 7];
+
+  return {
+    t: 0,
+    running: true,
+    speedMs: 700,
+    schedulerAlgo: "AI",
+    quantum: 4,
+    replacementAlgo: "CLOCK",
+    processes,
+    readyQueue,
+    runningPid: null,
+    finished: [],
+    nextArrivalIn: 12,
+    burstModel: trainBurstRegressor(),
+    memory: {
+      frames,
+      fifoQueue,
+      clockHand: 0,
+      faults: 0,
+      hits: 0,
+      prefetches: 0,
+      prefetchHits: 0,
+      markov: {},
+    },
+    history: { cpuUtil: [], readyLen: [], faultRate: [], throughput: [] },
+    kernelLog: [],
+    aiRecs: [],
+    interrupts: {
+      vector: [
+        { line: 0, device: "Timer", priority: 0 },
+        { line: 1, device: "Keyboard", priority: 2 },
+        { line: 2, device: "Disk", priority: 1 },
+        { line: 3, device: "Network", priority: 1 },
+        { line: 4, device: "Sensor", priority: 3 },
+      ],
+      log: [],
+      counts: { Timer: 0, Keyboard: 0, Disk: 0, Network: 0, Sensor: 0 },
+    },
+    devices: {
+      disk: { queue: 0, head: 32, totalCyl: 64, busy: false },
+      keyboard: { buffer: "" },
+      display: { frames: 0, fps: 60 },
+      uart: { tx: 0, rx: 0 },
+      gpio: { pins: new Array(8).fill(0) },
+      network: { throughputHistory: [] },
+    },
+    ipc: {
+      pipe: { buffer: 0, cap: 16 },
+      sharedMem: { value: 0, lockHolder: null },
+      messageQueue: [],
+      mailboxes: {},
+      signalLog: [],
+    },
+    deadlock: {
+      names: deadlockNames,
+      total: deadlockTotal,
+      allocation: deadlockAlloc,
+      max: deadlockMax,
+      lastResult: null,
+      riskScore: 0,
+    },
+    filesystem: {
+      tree: {
+        name: "/", type: "dir", children: [
+          { name: "bin", type: "dir", children: [
+            { name: "kernel.bin", type: "file", size: 4096, perm: "r-xr-xr-x" },
+            { name: "shell", type: "file", size: 1024, perm: "r-xr-xr-x" },
+          ]},
+          { name: "home", type: "dir", children: [
+            { name: "notes.txt", type: "file", size: 512, perm: "rw-r--r--" },
+          ]},
+          { name: "var", type: "dir", children: [
+            { name: "log", type: "dir", children: [
+              { name: "kernel.log", type: "file", size: 2048, perm: "rw-r--r--" },
+            ]},
+          ]},
+        ],
+      },
+      blocks: new Array(64).fill(0).map((_, i) => (i < 12 ? 1 : 0)),
+      nextFileId: 1,
+    },
+    network: {
+      sockets: [
+        { id: 1, proto: "TCP", local: ":8080", remote: "203.0.113.4:51322", state: "ESTABLISHED" },
+        { id: 2, proto: "TCP", local: ":22", remote: "-", state: "LISTEN" },
+        { id: 3, proto: "UDP", local: ":53", remote: "198.51.100.9:53", state: "OPEN" },
+      ],
+      packets: [],
+      nextPacketId: 1,
+      sent: 0, recv: 0,
+    },
+    chatLog: [
+      { from: "ai", text: "AI assistant online. Ask me about the scheduler, memory, deadlock risk, or any process by name or pid." },
+    ],
+    lastDecision: null,
+  };
+}
+
+/* --------------------------- explanation generator --------------------------- */
+
+function explainDecision(sim, chosen, candidates) {
+  if (!chosen) return "No ready process to run — CPU idle.";
+  const algo = sim.schedulerAlgo;
+  if (algo === "AI") {
+    const c = candidates.find((x) => x.pid === chosen.pid);
+    return `Selected ${chosen.name} (pid ${chosen.pid}) — blended burst prediction ${round1(c.blend)} ticks ` +
+      `(EWMA ${round1(c.ewma)}, regression ${round1(c.reg)}), waited ${chosen.waitTime} ticks, ` +
+      `dynamic priority score ${round2(c.score)}. Shortest expected remaining work wins, with an aging bonus ` +
+      `so long-waiting jobs are never starved.`;
+  }
+  if (algo === "SJF") return `Selected ${chosen.name} — shortest estimated burst among ready processes.`;
+  if (algo === "RR") return `Selected ${chosen.name} from the head of the ready queue (quantum ${sim.quantum}).`;
+  if (algo === "PRIORITY") return `Selected ${chosen.name} — priority ${chosen.priority} (aging applied to prevent starvation).`;
+  if (algo === "MLFQ") return `Selected ${chosen.name} from queue level ${chosen.mlfqLevel} (lowest non-empty level).`;
+  return `Selected ${chosen.name} — first in, first served.`;
+}
+
+/* --------------------------- scheduling core --------------------------- */
+
+function computeAiCandidates(sim) {
+  return sim.readyQueue.map((pid) => {
+    const p = sim.processes.find((x) => x.pid === pid);
+    const histAvg = p.bursts.length ? p.bursts.reduce((a, b) => a + b, 0) / p.bursts.length : p.totalBurst;
+    const reg = regressorPredict(sim.burstModel, p.waitTime, histAvg);
+    const ewma = p.ewmaPredicted;
+    const blend = 0.6 * ewma + 0.4 * reg;
+    const score = blend - 0.35 * p.waitTime; // lower is better; aging reduces score over time
+    return { pid, blend, ewma, reg, score };
+  });
+}
+
+function pickNext(sim) {
+  if (sim.readyQueue.length === 0) return null;
+  const procOf = (pid) => sim.processes.find((p) => p.pid === pid);
+  const algo = sim.schedulerAlgo;
+
+  if (algo === "FCFS" || algo === "RR") {
+    return procOf(sim.readyQueue[0]);
+  }
+  if (algo === "SJF") {
+    let best = null, bestVal = Infinity;
+    for (const pid of sim.readyQueue) {
+      const p = procOf(pid);
+      const est = p.bursts.length ? p.bursts.reduce((a, b) => a + b, 0) / p.bursts.length : p.totalBurst;
+      if (est < bestVal) { bestVal = est; best = p; }
+    }
+    return best;
+  }
+  if (algo === "PRIORITY") {
+    let best = null, bestVal = Infinity;
+    for (const pid of sim.readyQueue) {
+      const p = procOf(pid);
+      if (p.priority < bestVal) { bestVal = p.priority; best = p; }
+    }
+    return best;
+  }
+  if (algo === "MLFQ") {
+    let bestLevel = Infinity;
+    for (const pid of sim.readyQueue) { const p = procOf(pid); if (p.mlfqLevel < bestLevel) bestLevel = p.mlfqLevel; }
+    const atLevel = sim.readyQueue.map(procOf).filter((p) => p.mlfqLevel === bestLevel);
+    return atLevel[0];
+  }
+  if (algo === "AI") {
+    const cands = computeAiCandidates(sim);
+    let best = cands[0];
+    for (const c of cands) if (c.score < best.score) best = c;
+    return { proc: procOf(best.pid), cands };
+  }
+  return procOf(sim.readyQueue[0]);
+}
+
+function log(sim, source, msg, level = "info") {
+  sim.kernelLog.push({ t: sim.t, source, msg, level });
+  if (sim.kernelLog.length > MAX_LOG) sim.kernelLog.shift();
+}
+
+function recommend(sim, msg, type = "info") {
+  sim.aiRecs.unshift({ t: sim.t, msg, type });
+  if (sim.aiRecs.length > 12) sim.aiRecs.pop();
+}
+
+function memoryAccess(sim, p) {
+  const mem = sim.memory;
+  let page;
+  if (p.lastPage == null) page = rnd(PAGES_PER_PROC);
+  else if (Math.random() < 0.8) page = clamp(p.lastPage + (rnd(3) - 1), 0, PAGES_PER_PROC - 1);
+  else page = rnd(PAGES_PER_PROC);
+
+  const key = `${p.pid}:${page}`;
+  const owned = mem.frames.findIndex((f) => f && f.pid === p.pid && f.page === page);
+
+  if (owned !== -1) {
+    mem.hits++; p.hits++;
+    mem.frames[owned].lastUsed = sim.t;
+    mem.frames[owned].freq++;
+    mem.frames[owned].ref = 1;
+  } else {
+    mem.faults++; p.faults++;
+    let frameIdx = mem.frames.findIndex((f) => f === null);
+    if (frameIdx === -1) frameIdx = evictFrame(sim);
+    const evicted = mem.frames[frameIdx];
+    if (evicted) log(sim, "MMU", `Page fault: evicted pid ${evicted.pid} page ${evicted.page} from frame ${frameIdx} (${sim.replacementAlgo})`, "warn");
+    else log(sim, "MMU", `Page fault: pid ${p.pid} page ${page} loaded into free frame ${frameIdx}`, "info");
+    mem.frames[frameIdx] = { pid: p.pid, page, lastUsed: sim.t, freq: 1, ref: 1, loadedAt: sim.t };
+    mem.fifoQueue.push(frameIdx);
+  }
+
+  if (p.lastPage != null) markovUpdate(mem.markov, `${p.pid}:${p.lastPage}`, page);
+  const prediction = markovPredict(mem.markov, `${p.pid}:${page}`);
+  if (prediction && prediction.confidence > 0.55) {
+    const already = mem.frames.some((f) => f && f.pid === p.pid && f.page === prediction.page);
+    const free = mem.frames.findIndex((f) => f === null);
+    if (!already && free !== -1) {
+      mem.frames[free] = { pid: p.pid, page: prediction.page, lastUsed: sim.t, freq: 0, ref: 0, loadedAt: sim.t, prefetched: true };
+      mem.fifoQueue.push(free);
+      mem.prefetches++;
+      log(sim, "AI-MMU", `Prefetched pid ${p.pid} page ${prediction.page} (Markov confidence ${round2(prediction.confidence)})`, "ai");
+    }
+  }
+  p.lastPage = page;
+}
+
+function evictFrame(sim) {
+  const mem = sim.memory;
+  const occupied = mem.frames.map((f, i) => ({ f, i })).filter((x) => x.f);
+  if (sim.replacementAlgo === "FIFO") {
+    const idx = mem.fifoQueue.shift();
+    return idx;
+  }
+  if (sim.replacementAlgo === "LRU") {
+    let best = occupied[0], bestVal = Infinity;
+    for (const o of occupied) if (o.f.lastUsed < bestVal) { bestVal = o.f.lastUsed; best = o; }
+    return best.i;
+  }
+  if (sim.replacementAlgo === "LFU") {
+    let best = occupied[0], bestVal = Infinity;
+    for (const o of occupied) if (o.f.freq < bestVal) { bestVal = o.f.freq; best = o; }
+    return best.i;
+  }
+  // CLOCK
+  let hand = mem.clockHand;
+  for (let i = 0; i < mem.frames.length * 2; i++) {
+    const f = mem.frames[hand];
+    if (f.ref === 0) { const chosen = hand; mem.clockHand = (hand + 1) % mem.frames.length; return chosen; }
+    f.ref = 0;
+    hand = (hand + 1) % mem.frames.length;
+  }
+  mem.clockHand = (hand + 1) % mem.frames.length;
+  return hand;
+}
+
+/* --------------------------- main tick --------------------------- */
+
+function tick(sim) {
+  sim.t += 1;
+
+  // arrivals: keep the ready pool populated
+  sim.nextArrivalIn -= 1;
+  if (sim.nextArrivalIn <= 0 && sim.processes.filter((p) => p.state !== "terminated").length < 9) {
+    const p = createProcess(sim.t, {});
+    p.state = "ready";
+    sim.processes.push(p);
+    sim.readyQueue.push(p.pid);
+    sim.nextArrivalIn = 8 + rnd(10);
+    log(sim, "kernel", `Process created: ${p.name} (pid ${p.pid}, priority ${p.priority}, burst ${p.totalBurst})`, "info");
+  }
+
+  // timer interrupt always fires (drives the scheduler tick) — counted, but only
+  // logged occasionally so it doesn't drown out device interrupts
+  sim.interrupts.counts.Timer++;
+  if (sim.t % 5 === 0) sim.interrupts.log.unshift({ t: sim.t, device: "Timer", msg: "Timer tick — preemption check" });
+
+  // stochastic device interrupts
+  const maybe = (name, p, effect) => {
+    if (Math.random() < p) {
+      sim.interrupts.counts[name]++;
+      const m = effect();
+      sim.interrupts.log.unshift({ t: sim.t, device: name, msg: m });
+    }
+  };
+  maybe("Keyboard", 0.12, () => {
+    const ch = pick("abcdefghijklmnopqrstuvwxyz".split(""));
+    sim.devices.keyboard.buffer = (sim.devices.keyboard.buffer + ch).slice(-24);
+    sim.devices.uart.rx++;
+    return `Key '${ch}' scanned into buffer`;
+  });
+  maybe("Disk", 0.18, () => {
+    const target = rnd(sim.devices.disk.totalCyl);
+    const seek = Math.abs(target - sim.devices.disk.head);
+    sim.devices.disk.head = target;
+    sim.devices.disk.queue = Math.max(0, sim.devices.disk.queue - 1);
+    return `Disk seek to cylinder ${target} (${seek} tracks)`;
+  });
+  maybe("Network", 0.2, () => {
+    const kb = 4 + rnd(60);
+    sim.devices.network.throughputHistory.push(kb);
+    if (sim.devices.network.throughputHistory.length > MAX_HISTORY) sim.devices.network.throughputHistory.shift();
+    return `NIC received frame (${kb} KB)`;
+  });
+  maybe("Sensor", 0.1, () => {
+    return `Sensor sample captured`;
+  });
+  if (sim.interrupts.log.length > MAX_LOG) sim.interrupts.log.length = MAX_LOG;
+  if (Math.random() < 0.3) sim.devices.disk.queue = Math.min(6, sim.devices.disk.queue + (Math.random() < 0.4 ? 1 : 0));
+  sim.devices.display.frames++;
+  sim.devices.uart.tx += rnd(3);
+  if (Math.random() < 0.25) {
+    const i = rnd(8);
+    sim.devices.gpio.pins[i] = sim.devices.gpio.pins[i] ? 0 : 1;
+  }
+
+  // IPC background activity
+  const ipc = sim.ipc;
+  if (Math.random() < 0.5 && ipc.pipe.buffer < ipc.pipe.cap) ipc.pipe.buffer++;
+  if (Math.random() < 0.4 && ipc.pipe.buffer > 0) ipc.pipe.buffer--;
+  if (Math.random() < 0.3) {
+    ipc.sharedMem.lockHolder = ipc.sharedMem.lockHolder ? null : (sim.runningPid || null);
+    if (ipc.sharedMem.lockHolder) ipc.sharedMem.value += 1;
+  }
+  if (ipc.messageQueue.length && Math.random() < 0.5) {
+    const msg = ipc.messageQueue.shift();
+    log(sim, "IPC", `Delivered message ${msg.from} -> ${msg.to}: "${msg.text}"`, "info");
+  }
+
+  // network packet animation progress
+  sim.network.packets = sim.network.packets
+    .map((pkt) => ({ ...pkt, progress: (sim.t - pkt.startT) / pkt.duration }))
+    .filter((pkt) => pkt.progress < 1.15);
+  for (const pkt of sim.network.packets) {
+    if (pkt.progress >= 1 && !pkt.delivered) {
+      pkt.delivered = true;
+      sim.network.recv++;
+      log(sim, "NET", `${pkt.proto} packet ${pkt.id} delivered to ${pkt.to}`, "info");
+    }
+  }
+
+  // ---- scheduling: finish / dispatch / preempt ----
+  let running = sim.processes.find((p) => p.pid === sim.runningPid);
+
+  if (running && running.state === "running") {
+    memoryAccess(sim, running);
+    running.remaining -= 1;
+    running.quantumUsed += 1;
+    for (const pid of sim.readyQueue) {
+      const p = sim.processes.find((x) => x.pid === pid);
+      p.waitTime += 1;
+    }
+
+    if (running.remaining <= 0) {
+      running.state = "terminated";
+      running.finishedAt = sim.t;
+      running.turnaround = sim.t - running.arrival;
+      running.bursts.push(running.totalBurst);
+      sim.finished.push(running.pid);
+      sim.runningPid = null;
+      log(sim, "kernel", `${running.name} terminated (turnaround ${running.turnaround} ticks)`, "ok");
+      running.ewmaPredicted = 0.5 * running.totalBurst + 0.5 * running.ewmaPredicted;
+    } else {
+      let shouldPreempt = false;
+      if (sim.schedulerAlgo === "RR" && running.quantumUsed >= sim.quantum) shouldPreempt = true;
+      if (sim.schedulerAlgo === "MLFQ") {
+        const q = [4, 8, 999][running.mlfqLevel];
+        if (running.quantumUsed >= q) {
+          running.mlfqLevel = Math.min(2, running.mlfqLevel + 1);
+          shouldPreempt = true;
+        }
+      }
+      if (sim.schedulerAlgo === "PRIORITY") {
+        for (const pid of sim.readyQueue) {
+          const p = sim.processes.find((x) => x.pid === pid);
+          if (p.priority < running.priority) { shouldPreempt = true; break; }
+        }
+      }
+      if (sim.schedulerAlgo === "AI" && sim.readyQueue.length > 0 && running.quantumUsed >= 2) {
+        const cands = computeAiCandidates(sim);
+        const runningScore = 0.6 * running.ewmaPredicted + 0.4 * regressorPredict(sim.burstModel, 0, running.ewmaPredicted) - running.remaining * 0.02;
+        const best = cands.reduce((a, b) => (a.score < b.score ? a : b), cands[0]);
+        if (best.score < runningScore - 1.2) shouldPreempt = true;
+      }
+      if (shouldPreempt) {
+        running.state = "ready";
+        running.quantumUsed = 0;
+        sim.readyQueue.push(running.pid);
+        sim.runningPid = null;
+        log(sim, "sched", `Preempted ${running.name}`, "warn");
+      }
+    }
+  }
+
+  // aging for PRIORITY (prevent starvation) and priority boost for MLFQ
+  if (sim.schedulerAlgo === "PRIORITY") {
+    for (const pid of sim.readyQueue) {
+      const p = sim.processes.find((x) => x.pid === pid);
+      if (p.waitTime > 0 && p.waitTime % 6 === 0) p.priority = Math.max(1, p.priority - 1);
+    }
+  }
+  if (sim.schedulerAlgo === "MLFQ" && sim.t % 30 === 0) {
+    for (const pid of sim.readyQueue) sim.processes.find((x) => x.pid === pid).mlfqLevel = 0;
+    if (sim.readyQueue.length) log(sim, "sched", "MLFQ priority boost — all ready processes reset to level 0", "info");
+  }
+
+  // dispatch if idle
+  if (sim.runningPid == null && sim.readyQueue.length > 0) {
+    let chosenProc, cands = null;
+    if (sim.schedulerAlgo === "AI") {
+      const res = pickNext(sim);
+      chosenProc = res.proc; cands = res.cands;
+    } else {
+      chosenProc = pickNext(sim);
+    }
+    sim.readyQueue = sim.readyQueue.filter((pid) => pid !== chosenProc.pid);
+    chosenProc.state = "running";
+    chosenProc.waitTime = 0;
+    sim.runningPid = chosenProc.pid;
+    const explanation = explainDecision(sim, chosenProc, cands || []);
+    sim.lastDecision = { t: sim.t, text: explanation, pid: chosenProc.pid };
+    log(sim, "sched", explanation, "ai");
+  }
+
+  // ---- AI health monitoring ----
+  const cpuBusy = sim.runningPid != null ? 1 : 0;
+  sim.history.cpuUtil.push(cpuBusy * 100);
+  sim.history.readyLen.push(sim.readyQueue.length);
+  const faultRate = sim.memory.faults + sim.memory.hits > 0 ? sim.memory.faults / (sim.memory.faults + sim.memory.hits) : 0;
+  sim.history.faultRate.push(faultRate * 100);
+  sim.history.throughput.push(sim.finished.length);
+  for (const k of Object.keys(sim.history)) if (sim.history[k].length > MAX_HISTORY) sim.history[k].shift();
+
+  if (sim.t % 10 === 0) {
+    const window = sim.history.cpuUtil.slice(-10);
+    const avg = window.reduce((a, b) => a + b, 0) / (window.length || 1);
+    if (avg > 92 && sim.readyQueue.length > 4) {
+      recommend(sim, `CPU overload predicted: utilization averaging ${round1(avg)}% with ${sim.readyQueue.length} processes ready. Consider Round Robin or a shorter AI quantum to improve responsiveness.`, "warn");
+    }
+    const qWindow = sim.history.readyLen.slice(-10);
+    const qAvg = qWindow.reduce((a, b) => a + b, 0) / (qWindow.length || 1);
+    if (qAvg > 5) {
+      recommend(sim, `Ready queue trending long (avg ${round1(qAvg)}). Anomaly score elevated — throughput may be degrading.`, "warn");
+    }
+    const fWindow = sim.history.faultRate.slice(-10);
+    const fAvg = fWindow.reduce((a, b) => a + b, 0) / (fWindow.length || 1);
+    if (fAvg > 40) {
+      recommend(sim, `Page fault rate averaging ${round1(fAvg)}% over the last 10 ticks — thrashing risk. ${sim.replacementAlgo} may be thrashing under this workload; LRU or Clock often recovers faster.`, "crit");
+    } else if (sim.t % 40 === 0 && sim.memory.prefetches > 0) {
+      const acc = sim.memory.prefetches ? round1((sim.memory.prefetchHits / sim.memory.prefetches) * 100) : 0;
+      recommend(sim, `Markov prefetcher has issued ${sim.memory.prefetches} speculative loads this session.`, "info");
+    }
+  }
+
+  // deadlock AI risk heuristic
+  if (sim.t % 15 === 0) {
+    const { allocation, max, total } = sim.deadlock;
+    const avail = total.map((tv, j) => tv - allocation.reduce((a, row) => a + row[j], 0));
+    let contention = 0, denom = 0;
+    for (let i = 0; i < allocation.length; i++) {
+      for (let j = 0; j < total.length; j++) {
+        const need = max[i][j] - allocation[i][j];
+        denom += need;
+        if (need > avail[j]) contention += need - avail[j];
+      }
+    }
+    const risk = denom > 0 ? clamp((contention / denom) * 100, 0, 100) : 0;
+    sim.deadlock.riskScore = risk;
+    if (risk > 55) recommend(sim, `Deadlock risk heuristic elevated to ${round1(risk)}% — resource requests are outpacing availability. Run the Banker's safety check.`, "warn");
+  }
+}
+
+/* --------------------------- root component --------------------------- */
+
+function AIKernelOS() {
+  const simRef = useRef(makeInitialSim());
+  const [, forceRender] = useReducer((x) => x + 1, 0);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [running, setRunning] = useState(true);
+  const [speedMs, setSpeedMs] = useState(700);
+  const [schedulerAlgo, setSchedulerAlgo] = useState("AI");
+  const [quantum, setQuantum] = useState(4);
+  const [replacementAlgo, setReplacementAlgo] = useState("CLOCK");
+  const [chatInput, setChatInput] = useState("");
+  const [msgFrom, setMsgFrom] = useState("");
+  const [msgTo, setMsgTo] = useState("");
+  const [msgText, setMsgText] = useState("");
+  const [signalPid, setSignalPid] = useState("");
+
+  useEffect(() => { simRef.current.schedulerAlgo = schedulerAlgo; }, [schedulerAlgo]);
+  useEffect(() => { simRef.current.quantum = quantum; }, [quantum]);
+  useEffect(() => { simRef.current.replacementAlgo = replacementAlgo; }, [replacementAlgo]);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => {
+      tick(simRef.current);
+      forceRender();
+    }, speedMs);
+    return () => clearInterval(id);
+  }, [running, speedMs]);
+
+  const sim = simRef.current;
+
+  const sendMessage = () => {
+    if (!msgFrom || !msgTo || !msgText) return;
+    sim.ipc.messageQueue.push({ from: msgFrom, to: msgTo, text: msgText });
+    log(sim, "IPC", `Queued message ${msgFrom} -> ${msgTo}`, "info");
+    setMsgText("");
+    forceRender();
+  };
+
+  const sendSignal = (signal) => {
+    const pid = Number(signalPid);
+    const p = sim.processes.find((x) => x.pid === pid);
+    if (!p) return;
+    sim.ipc.signalLog.unshift({ t: sim.t, pid, signal });
+    if (signal === "SIGKILL" && p.state !== "terminated") {
+      if (sim.runningPid === pid) sim.runningPid = null;
+      sim.readyQueue = sim.readyQueue.filter((x) => x !== pid);
+      p.state = "terminated";
+      p.finishedAt = sim.t;
+      log(sim, "IPC", `${p.name} received SIGKILL`, "crit");
+    } else if (signal === "SIGSTOP" && p.state === "ready") {
+      sim.readyQueue = sim.readyQueue.filter((x) => x !== pid);
+      p.state = "waiting";
+      log(sim, "IPC", `${p.name} received SIGSTOP`, "warn");
+    } else if (signal === "SIGCONT" && p.state === "waiting") {
+      p.state = "ready";
+      sim.readyQueue.push(pid);
+      log(sim, "IPC", `${p.name} received SIGCONT`, "info");
+    }
+    forceRender();
+  };
+
+  const sendPacket = (proto) => {
+    const s = pick(sim.network.sockets);
+    const pkt = { id: sim.network.nextPacketId++, proto, to: s.remote === "-" ? "broadcast" : s.remote, startT: sim.t, duration: 4 + rnd(4), progress: 0, delivered: false };
+    sim.network.packets.push(pkt);
+    sim.network.sent++;
+    log(sim, "NET", `${proto} packet ${pkt.id} sent to ${pkt.to}`, "info");
+    forceRender();
+  };
+
+  const runBankers = () => {
+    const { allocation, max, total, names } = sim.deadlock;
+    const avail = total.map((tv, j) => tv - allocation.reduce((a, row) => a + row[j], 0));
+    const result = bankersSafety(avail, allocation, max, names);
+    sim.deadlock.lastResult = result;
+    log(sim, "deadlock", result.safe
+      ? `Banker's algorithm: SAFE, sequence ${result.sequence.join(" -> ")}`
+      : `Banker's algorithm: UNSAFE — no safe sequence exists`, result.safe ? "ok" : "crit");
+    forceRender();
+  };
+
+  const grantRequest = (i) => {
+    const { allocation, max, total } = sim.deadlock;
+    const avail = total.map((tv, j) => tv - allocation.reduce((a, row) => a + row[j], 0));
+    let changed = false;
+    for (let j = 0; j < total.length; j++) {
+      if (allocation[i][j] < max[i][j] && avail[j] > 0) {
+        allocation[i][j] += 1; changed = true; break;
+      }
+    }
+    if (changed) log(sim, "deadlock", `Granted one resource unit to ${sim.deadlock.names[i]}`, "info");
+    forceRender();
+  };
+
+  const releaseAll = (i) => {
+    const { allocation } = sim.deadlock;
+    for (let j = 0; j < allocation[i].length; j++) allocation[i][j] = 0;
+    log(sim, "deadlock", `${sim.deadlock.names[i]} released all resources`, "info");
+    forceRender();
+  };
+
+  const createFile = () => {
+    const free = sim.filesystem.blocks.findIndex((b) => b === 0);
+    if (free === -1) return;
+    sim.filesystem.blocks[free] = 1;
+    const id = sim.filesystem.nextFileId++;
+    sim.filesystem.tree.children.find((c) => c.name === "home").children.push({
+      name: `file${id}.dat`, type: "file", size: 256 + rnd(2048), perm: "rw-r--r--",
+    });
+    log(sim, "fs", `Created /home/file${id}.dat (block ${free})`, "info");
+    forceRender();
+  };
+
+  const deleteLastFile = () => {
+    const home = sim.filesystem.tree.children.find((c) => c.name === "home");
+    if (home.children.length <= 1) return;
+    const removed = home.children.pop();
+    const usedBlocks = sim.filesystem.blocks.map((b, i) => i).filter((i) => sim.filesystem.blocks[i] === 1);
+    const last = usedBlocks[usedBlocks.length - 1];
+    if (last !== undefined) sim.filesystem.blocks[last] = 0;
+    log(sim, "fs", `Deleted /home/${removed.name}`, "warn");
+    forceRender();
+  };
+
+  const askAI = () => {
+    if (!chatInput.trim()) return;
+    const q = chatInput.trim();
+    sim.chatLog.push({ from: "user", text: q });
+    sim.chatLog.push({ from: "ai", text: answerQuestion(sim, q) });
+    setChatInput("");
+    forceRender();
+  };
+
+  return (
+    <div className="w-full min-h-[720px] bg-slate-950 text-slate-100 rounded-2xl overflow-hidden border border-slate-800 flex flex-col font-sans">
+      <TopBar
+        sim={sim} running={running} setRunning={setRunning}
+        speedMs={speedMs} setSpeedMs={setSpeedMs}
+        accent={SUBSYSTEM_ACCENT[activeTab] || "cyan"}
+      />
+      <div className={`h-[2px] w-full ${colorClasses(SUBSYSTEM_ACCENT[activeTab] || "cyan").bg} opacity-60 transition-colors duration-300`} />
+      <div className="flex flex-1 min-h-0">
+        <SideNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        <div className="flex-1 min-w-0 overflow-y-auto p-4">
+          {activeTab === "dashboard" && <DashboardTab sim={sim} />}
+          {activeTab === "scheduler" && (
+            <SchedulerTab
+              sim={sim}
+              schedulerAlgo={schedulerAlgo} setSchedulerAlgo={setSchedulerAlgo}
+              quantum={quantum} setQuantum={setQuantum}
+            />
+          )}
+          {activeTab === "memory" && (
+            <MemoryTab sim={sim} replacementAlgo={replacementAlgo} setReplacementAlgo={setReplacementAlgo} />
+          )}
+          {activeTab === "ipc" && (
+            <IpcTab
+              sim={sim}
+              msgFrom={msgFrom} setMsgFrom={setMsgFrom}
+              msgTo={msgTo} setMsgTo={setMsgTo}
+              msgText={msgText} setMsgText={setMsgText}
+              sendMessage={sendMessage}
+              signalPid={signalPid} setSignalPid={setSignalPid}
+              sendSignal={sendSignal}
+            />
+          )}
+          {activeTab === "interrupts" && <InterruptsTab sim={sim} />}
+          {activeTab === "devices" && <DevicesTab sim={sim} />}
+          {activeTab === "deadlock" && (
+            <DeadlockTab sim={sim} runBankers={runBankers} grantRequest={grantRequest} releaseAll={releaseAll} />
+          )}
+          {activeTab === "filesystem" && (
+            <FilesystemTab sim={sim} createFile={createFile} deleteLastFile={deleteLastFile} />
+          )}
+          {activeTab === "network" && <NetworkTab sim={sim} sendPacket={sendPacket} />}
+          {activeTab === "ai" && <AiTab sim={sim} chatInput={chatInput} setChatInput={setChatInput} askAI={askAI} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- AI assistant NLG --------------------------- */
+
+function answerQuestion(sim, q) {
+  const ql = q.toLowerCase();
+  const pidMatch = q.match(/\bpid\s*(\d+)\b/i) || q.match(/\b#(\d+)\b/);
+  if (pidMatch) {
+    const pid = Number(pidMatch[1]);
+    const p = sim.processes.find((x) => x.pid === pid);
+    if (p) {
+      return `${p.name} (pid ${p.pid}): state ${p.state}, priority ${p.priority}, remaining burst ${round1(p.remaining)}, ` +
+        `waited ${p.waitTime} ticks, ${p.faults} page faults / ${p.hits} hits so far.`;
+    }
+    return `I don't see a process with pid ${pid} — it may have already terminated or not spawned yet.`;
+  }
+  if (ql.includes("deadlock")) {
+    const r = sim.deadlock.lastResult;
+    const risk = round1(sim.deadlock.riskScore);
+    if (!r) return `I haven't run the Banker's safety check yet this session. Current AI risk heuristic: ${risk}%. Head to the Deadlock tab and run the safety check for a definitive answer.`;
+    return `Last Banker's algorithm run was ${r.safe ? "SAFE" : "UNSAFE"}${r.safe ? ` with sequence ${r.sequence.join(" -> ")}` : ""}. Current AI risk heuristic: ${risk}%.`;
+  }
+  if (ql.includes("memory") || ql.includes("page")) {
+    const total = sim.memory.faults + sim.memory.hits;
+    const rate = total ? round1((sim.memory.faults / total) * 100) : 0;
+    return `Memory manager is running ${sim.replacementAlgo} replacement. Fault rate is ${rate}% over ${total} accesses (${sim.memory.faults} faults, ${sim.memory.hits} hits). ` +
+      `The Markov prefetcher has issued ${sim.memory.prefetches} speculative page loads.`;
+  }
+  if (ql.includes("schedul") || ql.includes("cpu") || ql.includes("why")) {
+    return sim.lastDecision ? `Most recent scheduling decision (tick ${sim.lastDecision.t}): ${sim.lastDecision.text}` : "No scheduling decision has been made yet.";
+  }
+  if (ql.includes("health") || ql.includes("status") || ql.includes("overload")) {
+    const win = sim.history.cpuUtil.slice(-10);
+    const avg = win.length ? round1(win.reduce((a, b) => a + b, 0) / win.length) : 0;
+    return `System health snapshot at tick ${sim.t}: CPU utilization ~${avg}% (last 10 ticks), ${sim.readyQueue.length} processes ready, ` +
+      `${sim.finished.length} finished, deadlock risk ${round1(sim.deadlock.riskScore)}%.`;
+  }
+  return `I track scheduling, memory, and deadlock state live. Try asking "why did pid ${sim.runningPid ?? "X"} run", "what's the page fault rate", or "deadlock risk".`;
+}
+
+/* --------------------------- top bar / nav --------------------------- */
+
+function HeartbeatDot({ alive, accent = "emerald", size = 7 }) {
+  const c = colorClasses(accent);
+  return (
+    <span className="relative inline-flex" style={{ width: size, height: size }}>
+      {alive && <span className={`absolute inline-flex h-full w-full rounded-full ${c.bg} opacity-60 animate-ping`} />}
+      <span className={`relative inline-flex rounded-full h-full w-full ${alive ? c.bg : "bg-slate-700"}`} />
+    </span>
+  );
+}
+
+function TopBar({ sim, running, setRunning, speedMs, setSpeedMs, accent }) {
+  const c = colorClasses(accent);
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/90">
+      <div className="flex items-center gap-3">
+        <div className="relative w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/30 flex items-center justify-center">
+          <Brain size={16} className="text-violet-400" />
+          <span className="absolute -bottom-1 -right-1"><HeartbeatDot alive={sim.runningPid != null} accent="emerald" size={8} /></span>
+        </div>
+        <div>
+          <div className="text-sm font-semibold leading-none tracking-tight">AI-aware microkernel</div>
+          <div className="text-[10px] text-slate-500 leading-none mt-1">simulation &amp; research prototype</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5">
+        <div className="hidden md:flex items-center gap-3 font-mono text-[11px] text-slate-400 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-1.5">
+          <span className="flex items-center gap-1.5">
+            <HeartbeatDot alive={running} accent={running ? "emerald" : "slate"} size={6} />
+            {running ? "live" : "paused"}
+          </span>
+          <span className="text-slate-700">·</span>
+          <span>tick <span className="text-slate-100">{String(sim.t).padStart(5, "0")}</span></span>
+          <span className="text-slate-700">·</span>
+          <span>ready <span className={c.text}>{sim.readyQueue.length}</span></span>
+          <span>done <span className="text-emerald-400">{sim.finished.length}</span></span>
+        </div>
+
+        <div className="hidden lg:flex items-center gap-2 text-[11px] text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-1.5">
+          <Timer size={12} className="text-slate-500" />
+          <input type="range" min="150" max="1500" step="50" value={speedMs}
+            onChange={(e) => setSpeedMs(Number(e.target.value))} className="w-20 accent-cyan-500" />
+          <span className="font-mono text-slate-400 w-10">{speedMs}ms</span>
+        </div>
+
+        <button
+          onClick={() => setRunning((r) => !r)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-medium transition-colors ${running ? "border-rose-500/40 text-rose-300 bg-rose-500/10 hover:bg-rose-500/15" : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/15"}`}
+        >
+          {running ? <Pause size={12} /> : <Play size={12} />}
+          {running ? "Pause" : "Run"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SideNav({ activeTab, setActiveTab }) {
+  return (
+    <div className="w-48 shrink-0 border-r border-slate-800 bg-slate-900/40 py-2 flex flex-col">
+      <div className="flex-1">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const active = tab.id === activeTab;
+          const accent = SUBSYSTEM_ACCENT[tab.id] || "cyan";
+          const c = colorClasses(accent);
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative w-full flex items-center gap-2.5 pl-4 pr-3 py-2 text-[12px] transition-colors ${
+                active ? `${c.soft} ${c.text}` : "text-slate-400 hover:bg-slate-800/40 hover:text-slate-200"
+              }`}
+            >
+              {active && <span className={`absolute left-0 top-1 bottom-1 w-[2.5px] rounded-full ${c.bg}`} />}
+              <Icon size={14} className={active ? c.text : "text-slate-500"} />
+              <span className={active ? "font-medium" : ""}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="px-4 py-2.5 border-t border-slate-800/80">
+        <div className="text-[9px] uppercase tracking-wider text-slate-600">kernel engine</div>
+        <div className="text-[10px] font-mono text-slate-500">v1.0 · microkernel-sim</div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- dashboard tab --------------------------- */
+
+const PID_HEX = {
+  blue: "#3b82f6", amber: "#f59e0b", emerald: "#10b981", violet: "#8b5cf6", rose: "#f43f5e",
+  cyan: "#22d3ee", orange: "#f97316", pink: "#ec4899", lime: "#84cc16", indigo: "#6366f1",
+};
+
+function SchedulerRing({ sim }) {
+  const size = 220, cx = size / 2, cy = size / 2, r = 78;
+  const items = sim.readyQueue.map((pid, i) => {
+    const p = sim.processes.find((x) => x.pid === pid);
+    const angle = (i / Math.max(1, sim.readyQueue.length)) * 2 * Math.PI - Math.PI / 2 + sim.t * 0.03;
+    return { p, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  });
+  const running = sim.processes.find((p) => p.pid === sim.runningPid);
+  const hubColor = running ? PID_HEX[running.color] : "#334155";
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <defs>
+        <filter id="hubGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="4.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1e293b" strokeWidth="1" strokeDasharray="3 5" />
+      {items.map(({ p, x, y }) => (
+        <line key={`spoke-${p.pid}`} x1={cx} y1={cy} x2={x} y2={y} stroke={PID_HEX[p.color]} strokeWidth="0.75" opacity={p.pid === sim.runningPid ? 0.35 : 0.12} />
+      ))}
+      {items.map(({ p, x, y }) => (
+        <g key={p.pid}>
+          <title>{`${p.name} · pid ${p.pid} · priority ${p.priority} · remaining ${round1(p.remaining)}`}</title>
+          <circle cx={x} cy={y} r={13} fill={PID_HEX[p.color]} opacity="0.9" />
+          <text x={x} y={y + 3.5} textAnchor="middle" fontSize="9" className="fill-slate-950 font-mono font-bold">{p.pid}</text>
+        </g>
+      ))}
+      <circle cx={cx} cy={cy} r={38} fill="#0f172a" stroke={hubColor} strokeWidth="2.25" filter={running ? "url(#hubGlow)" : undefined} style={{ transition: "stroke 300ms ease" }} />
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize="9" className="fill-slate-500 font-mono">CPU</text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fontSize="14" className="fill-slate-100 font-mono font-bold">
+        {running ? `P${running.pid}` : "idle"}
+      </text>
+    </svg>
+  );
+}
+
+function DashboardTab({ sim }) {
+  const cpuAvg = sim.history.cpuUtil.length ? round1(sim.history.cpuUtil.reduce((a, b) => a + b, 0) / sim.history.cpuUtil.length) : 0;
+  const faultRate = (sim.memory.faults + sim.memory.hits) ? round1((sim.memory.faults / (sim.memory.faults + sim.memory.hits)) * 100) : 0;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-6 gap-3">
+        <StatCard label="CPU util (avg)" value={`${cpuAvg}%`} accent="cyan" icon={Cpu} />
+        <StatCard label="Ready queue" value={sim.readyQueue.length} accent="cyan" icon={Activity} />
+        <StatCard label="Page faults" value={`${faultRate}%`} accent="emerald" sub={`${sim.memory.faults} total`} icon={Layers} />
+        <StatCard label="Finished" value={sim.finished.length} accent="emerald" icon={CheckCircle2} />
+        <StatCard label="Interrupts/tick" value={Object.values(sim.interrupts.counts).reduce((a, b) => a + b, 0)} accent="amber" icon={Zap} />
+        <StatCard label="Deadlock risk" value={`${round1(sim.deadlock.riskScore)}%`} accent={sim.deadlock.riskScore > 55 ? "rose" : "emerald"} icon={ShieldAlert} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <Panel title="Scheduler ring" icon={Cpu} accent="cyan" className="col-span-1">
+          <div className="flex flex-col items-center">
+            <SchedulerRing sim={sim} />
+            <div className="text-[10px] text-slate-500 mt-1">algorithm: <span className="text-cyan-400 font-mono">{sim.schedulerAlgo}</span></div>
+          </div>
+        </Panel>
+        <Panel title="CPU utilization" icon={Activity} accent="cyan" className="col-span-1">
+          <Sparkline data={sim.history.cpuUtil} color="#22d3ee" width={280} height={70} />
+          <div className="mt-2"><ProgressBar value={cpuAvg} max={100} accent="cyan" /></div>
+        </Panel>
+        <Panel title="Page fault rate" icon={Layers} accent="emerald" className="col-span-1">
+          <Sparkline data={sim.history.faultRate} color="#fb7185" width={280} height={70} />
+          <div className="mt-2"><ProgressBar value={faultRate} max={100} accent="rose" /></div>
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <Panel title="Kernel log" icon={Monitor} accent="slate" className="col-span-2">
+          <LogList items={sim.kernelLog.slice().reverse()} />
+        </Panel>
+        <Panel title="AI recommendations" icon={Sparkles} accent="violet">
+          <div className="space-y-2 h-52 overflow-y-auto pr-1">
+            {sim.aiRecs.length === 0 && <div className="text-slate-600 italic text-xs">system nominal — no recommendations</div>}
+            {sim.aiRecs.map((r, i) => (
+              <div key={i} className={`text-[11px] rounded-md px-2.5 py-1.5 border ${
+                r.type === "crit" ? "border-rose-500/30 bg-rose-500/5 text-rose-300" :
+                r.type === "warn" ? "border-amber-500/30 bg-amber-500/5 text-amber-300" :
+                "border-violet-500/30 bg-violet-500/5 text-violet-300"}`}>
+                <span className="text-slate-500 font-mono mr-1.5">t{r.t}</span>{r.msg}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- scheduler tab --------------------------- */
+
+function SchedulerTab({ sim, schedulerAlgo, setSchedulerAlgo, quantum, setQuantum }) {
+  const algos = ["FCFS", "SJF", "RR", "PRIORITY", "MLFQ", "AI"];
+  const cands = schedulerAlgo === "AI" ? computeAiCandidates(sim) : [];
+  const active = sim.processes.filter((p) => p.state !== "terminated");
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        {algos.map((a) => (
+          <button key={a} onClick={() => setSchedulerAlgo(a)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors ${a === schedulerAlgo ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-300" : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"}`}>
+            {a}
+          </button>
+        ))}
+        {schedulerAlgo === "RR" && (
+          <div className="flex items-center gap-2 ml-2 text-xs text-slate-400">
+            <span>quantum</span>
+            <input type="range" min="1" max="10" value={quantum} onChange={(e) => setQuantum(Number(e.target.value))} className="accent-cyan-500 w-24" />
+            <span className="font-mono text-cyan-400">{quantum}</span>
+          </div>
+        )}
+      </div>
+
+      {schedulerAlgo === "AI" && (
+        <Panel title="AI burst regressor" icon={Brain} accent="violet">
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            <div className="font-mono text-slate-300">w0 = {round2(sim.burstModel.w[0])}</div>
+            <div className="font-mono text-slate-300">w1 (wait) = {round2(sim.burstModel.w[1])}</div>
+            <div className="font-mono text-slate-300">w2 (hist.avg) = {round2(sim.burstModel.w[2])}</div>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1.5">
+            Trained once at boot via least-squares on 60 synthetic samples · R² = {round2(sim.burstModel.r2)}.
+            Live predictions blend this regression (40%) with per-process exponential smoothing (60%),
+            then subtract an aging bonus so long-waiting processes are prioritized to prevent starvation.
+          </div>
+        </Panel>
+      )}
+
+      {sim.lastDecision && (
+        <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-[12px] text-violet-200 flex gap-2">
+          <Sparkles size={14} className="shrink-0 mt-0.5 text-violet-400" />
+          <span>{sim.lastDecision.text}</span>
+        </div>
+      )}
+
+      <Panel title={`Process control blocks (${active.length} active)`} icon={Cpu} accent="cyan">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px] font-mono">
+            <thead>
+              <tr className="text-slate-500 text-left border-b border-slate-800">
+                <th className="py-1.5 pr-3">pid</th><th className="pr-3">name</th><th className="pr-3">state</th>
+                <th className="pr-3">pri</th><th className="pr-3">remaining</th><th className="pr-3">wait</th>
+                {schedulerAlgo === "AI" && <th className="pr-3">AI score</th>}
+                {schedulerAlgo === "MLFQ" && <th className="pr-3">level</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {active.map((p) => {
+                const c = colorClasses(p.color);
+                const cand = cands.find((x) => x.pid === p.pid);
+                const stateColor = p.state === "running" ? "text-cyan-400" : p.state === "waiting" ? "text-amber-400" : "text-slate-400";
+                return (
+                  <tr key={p.pid} className="border-b border-slate-900 hover:bg-slate-800/30 transition-colors">
+                    <td className={`py-1.5 pr-3 ${c.text}`}>{p.pid}</td>
+                    <td className="pr-3 text-slate-300">{p.name}</td>
+                    <td className={`pr-3 ${stateColor}`}>{p.state}</td>
+                    <td className="pr-3">{p.priority}</td>
+                    <td className="pr-3">{round1(p.remaining)}</td>
+                    <td className="pr-3">{p.waitTime}</td>
+                    {schedulerAlgo === "AI" && <td className="pr-3 text-violet-400">{cand ? round2(cand.score) : "-"}</td>}
+                    {schedulerAlgo === "MLFQ" && <td className="pr-3">{p.mlfqLevel}</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- memory tab --------------------------- */
+
+function MemoryTab({ sim, replacementAlgo, setReplacementAlgo }) {
+  const algos = ["FIFO", "LRU", "LFU", "CLOCK"];
+  const total = sim.memory.faults + sim.memory.hits;
+  const rate = total ? round1((sim.memory.faults / total) * 100) : 0;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        {algos.map((a) => (
+          <button key={a} onClick={() => setReplacementAlgo(a)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono border transition-colors ${a === replacementAlgo ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"}`}>
+            {a}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <StatCard label="Faults" value={sim.memory.faults} accent="rose" />
+        <StatCard label="Hits" value={sim.memory.hits} accent="emerald" />
+        <StatCard label="Fault rate" value={`${rate}%`} accent="amber" />
+        <StatCard label="AI prefetches" value={sim.memory.prefetches} accent="violet" />
+      </div>
+
+      <Panel title={`Physical frames (${NUM_FRAMES})`} icon={Layers} accent="emerald">
+        <div className="grid grid-cols-8 gap-2">
+          {sim.memory.frames.map((f, i) => {
+            const c = f ? colorClasses(sim.processes.find((p) => p.pid === f.pid)?.color || "blue") : null;
+            return (
+              <div key={i} className={`aspect-square rounded-md border flex flex-col items-center justify-center text-[10px] font-mono ${f ? `${c.soft} ${c.border}` : "border-slate-800 bg-slate-900/40"}`}>
+                <span className="text-slate-500">#{i}</span>
+                {f ? (
+                  <>
+                    <span className={c.text}>P{f.pid}·pg{f.page}</span>
+                    {f.prefetched && <span className="text-violet-400">AI</span>}
+                  </>
+                ) : <span className="text-slate-700">free</span>}
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <Panel title="AI page prefetcher (order-1 Markov model)" icon={Brain} accent="violet">
+        <div className="text-[11px] text-slate-400 leading-relaxed">
+          The prefetcher learns a per-process transition table of "after page X, page Y follows" from observed
+          accesses. When the model's confidence for the next page exceeds 55%, it speculatively loads that page
+          into a free frame ahead of time, turning a future page fault into a hit. {sim.memory.prefetches} prefetch(es)
+          issued this session.
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- IPC tab --------------------------- */
+
+function IpcTab({ sim, msgFrom, setMsgFrom, msgTo, setMsgTo, msgText, setMsgText, sendMessage, signalPid, setSignalPid, sendSignal }) {
+  const active = sim.processes.filter((p) => p.state !== "terminated");
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-4">
+        <Panel title="Pipe" icon={MessageSquare} accent="sky">
+          <div className="text-[11px] text-slate-400 mb-2">buffer {sim.ipc.pipe.buffer}/{sim.ipc.pipe.cap}</div>
+          <ProgressBar value={sim.ipc.pipe.buffer} max={sim.ipc.pipe.cap} accent="sky" />
+        </Panel>
+        <Panel title="Shared memory" icon={Database} accent="sky">
+          <div className="text-[11px] text-slate-400">value = <span className="font-mono text-slate-200">{sim.ipc.sharedMem.value}</span></div>
+          <div className="text-[11px] text-slate-400 mt-1">lock held by {sim.ipc.sharedMem.lockHolder ? `pid ${sim.ipc.sharedMem.lockHolder}` : "none"}</div>
+        </Panel>
+        <Panel title="Message queue" icon={Send} accent="sky">
+          <div className="text-[11px] text-slate-400">{sim.ipc.messageQueue.length} pending message(s)</div>
+        </Panel>
+      </div>
+
+      <Panel title="Send a message" icon={Send} accent="sky">
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <input value={msgFrom} onChange={(e) => setMsgFrom(e.target.value)} placeholder="from"
+            className="bg-slate-900 border border-slate-800 rounded-md px-2 py-1 w-24 outline-none focus:border-cyan-500/50" />
+          <ChevronRight size={12} className="text-slate-600" />
+          <input value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="to"
+            className="bg-slate-900 border border-slate-800 rounded-md px-2 py-1 w-24 outline-none focus:border-cyan-500/50" />
+          <input value={msgText} onChange={(e) => setMsgText(e.target.value)} placeholder="message text"
+            className="bg-slate-900 border border-slate-800 rounded-md px-2 py-1 flex-1 min-w-[160px] outline-none focus:border-cyan-500/50" />
+          <button onClick={sendMessage} className="px-3 py-1 rounded-md bg-cyan-500/15 border border-cyan-500/40 text-cyan-300">Send</button>
+        </div>
+      </Panel>
+
+      <Panel title="Signals" icon={AlertTriangle} accent="sky">
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <select value={signalPid} onChange={(e) => setSignalPid(e.target.value)}
+            className="bg-slate-900 border border-slate-800 rounded-md px-2 py-1 outline-none">
+            <option value="">select process</option>
+            {active.map((p) => <option key={p.pid} value={p.pid}>{p.name} (pid {p.pid})</option>)}
+          </select>
+          <button onClick={() => sendSignal("SIGSTOP")} className="px-2.5 py-1 rounded-md border border-amber-500/40 text-amber-300 bg-amber-500/10">SIGSTOP</button>
+          <button onClick={() => sendSignal("SIGCONT")} className="px-2.5 py-1 rounded-md border border-emerald-500/40 text-emerald-300 bg-emerald-500/10">SIGCONT</button>
+          <button onClick={() => sendSignal("SIGKILL")} className="px-2.5 py-1 rounded-md border border-rose-500/40 text-rose-300 bg-rose-500/10">SIGKILL</button>
+        </div>
+        <div className="mt-3">
+          <LogList items={sim.ipc.signalLog.map((s) => ({ t: s.t, source: "signal", msg: `pid ${s.pid} <- ${s.signal}`, level: s.signal === "SIGKILL" ? "crit" : "warn" }))} height="h-28" />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- interrupts tab --------------------------- */
+
+function InterruptsTab({ sim }) {
+  return (
+    <div className="space-y-4">
+      <Panel title="Interrupt vector table" icon={Zap} accent="amber">
+        <table className="w-full text-[11px] font-mono">
+          <thead><tr className="text-slate-500 text-left border-b border-slate-800"><th className="py-1.5">line</th><th>device</th><th>priority</th><th>count</th></tr></thead>
+          <tbody>
+            {sim.interrupts.vector.map((v) => (
+              <tr key={v.line} className="border-b border-slate-900 hover:bg-slate-800/30 transition-colors">
+                <td className="py-1.5">{v.line}</td><td className="text-slate-300">{v.device}</td><td>{v.priority}</td>
+                <td className="text-cyan-400">{sim.interrupts.counts[v.device]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+      <Panel title="Interrupt log" icon={Radio} accent="amber">
+        <LogList items={sim.interrupts.log.map((l) => ({ t: l.t, source: l.device, msg: l.msg, level: l.device === "Timer" ? "info" : "ok" }))} />
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- devices tab --------------------------- */
+
+function DevicesTab({ sim }) {
+  const d = sim.devices;
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      <Panel title="Disk" icon={HardDrive} accent="orange">
+        <div className="text-[11px] text-slate-400 mb-1">head @ cylinder {d.disk.head}/{d.disk.totalCyl}</div>
+        <ProgressBar value={d.disk.head} max={d.disk.totalCyl} accent="orange" />
+        <div className="text-[11px] text-slate-400 mt-2">queue depth: {d.disk.queue}</div>
+      </Panel>
+      <Panel title="Keyboard" icon={Keyboard} accent="orange">
+        <div className="font-mono text-sm text-slate-200 bg-slate-950 rounded-md px-2 py-1.5 min-h-[32px] border border-slate-800">{d.keyboard.buffer || " "}</div>
+      </Panel>
+      <Panel title="Display" icon={Monitor} accent="orange">
+        <div className="text-[11px] text-slate-400">frames rendered: <span className="text-cyan-400 font-mono">{d.display.frames}</span></div>
+        <div className="text-[11px] text-slate-400">target fps: {d.display.fps}</div>
+      </Panel>
+      <Panel title="UART" icon={Radio} accent="orange">
+        <div className="text-[11px] text-slate-400">tx: <span className="font-mono text-slate-200">{d.uart.tx}</span> bytes</div>
+        <div className="text-[11px] text-slate-400">rx: <span className="font-mono text-slate-200">{d.uart.rx}</span> bytes</div>
+      </Panel>
+      <Panel title="GPIO" icon={Settings2} accent="orange">
+        <div className="flex gap-1.5">
+          {d.gpio.pins.map((v, i) => (
+            <div key={i} className={`w-6 h-6 rounded-md border flex items-center justify-center text-[9px] font-mono ${v ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "bg-slate-900 border-slate-800 text-slate-600"}`}>{i}</div>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="Network interface" icon={NetworkIcon} accent="orange">
+        <Sparkline data={d.network.throughputHistory} color="#38bdf8" width={220} height={50} />
+        <div className="text-[11px] text-slate-400 mt-1">throughput (KB/tick)</div>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- deadlock tab --------------------------- */
+
+function DeadlockTab({ sim, runBankers, grantRequest, releaseAll }) {
+  const { names, total, allocation, max, lastResult, riskScore } = sim.deadlock;
+  const avail = total.map((tv, j) => tv - allocation.reduce((a, row) => a + row[j], 0));
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <StatCard label="Total R0/R1/R2" value={total.join("/")} accent="cyan" />
+        <StatCard label="Available" value={avail.join("/")} accent="emerald" />
+        <StatCard label="AI risk score" value={`${round1(riskScore)}%`} accent={riskScore > 55 ? "rose" : "emerald"} />
+        <div className="flex items-center">
+          <button onClick={runBankers} className="w-full h-full rounded-lg border border-violet-500/40 bg-violet-500/10 text-violet-300 text-xs font-medium flex items-center justify-center gap-1.5">
+            <ShieldAlert size={13} /> Run safety check
+          </button>
+        </div>
+      </div>
+
+      {lastResult && (
+        <div className={`rounded-lg border px-3 py-2 text-[12px] flex items-center gap-2 ${lastResult.safe ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300" : "border-rose-500/30 bg-rose-500/5 text-rose-300"}`}>
+          {lastResult.safe ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+          {lastResult.safe ? `Safe sequence: ${lastResult.sequence.join(" → ")}` : "No safe sequence — system is in an unsafe state"}
+        </div>
+      )}
+
+      <Panel title="Resource allocation table" icon={Lock} accent="rose">
+        <table className="w-full text-[11px] font-mono">
+          <thead>
+            <tr className="text-slate-500 text-left border-b border-slate-800">
+              <th className="py-1.5">process</th><th>allocation</th><th>max</th><th>need</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {names.map((n, i) => (
+              <tr key={n} className="border-b border-slate-900 hover:bg-slate-800/30 transition-colors">
+                <td className="py-1.5 text-slate-300">{n}</td>
+                <td className="text-cyan-400">{allocation[i].join(",")}</td>
+                <td className="text-slate-400">{max[i].join(",")}</td>
+                <td className="text-amber-400">{max[i].map((m, j) => m - allocation[i][j]).join(",")}</td>
+                <td className="flex gap-1.5 py-1">
+                  <button onClick={() => grantRequest(i)} className="px-2 py-0.5 rounded border border-slate-700 text-slate-300 hover:border-cyan-500/40 text-[10px]">grant +1</button>
+                  <button onClick={() => releaseAll(i)} className="px-2 py-0.5 rounded border border-slate-700 text-slate-300 hover:border-rose-500/40 text-[10px]">release</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- filesystem tab --------------------------- */
+
+function FsNode({ node, depth = 0 }) {
+  if (node.type === "file") {
+    return (
+      <div className="flex items-center gap-2 text-[11px] font-mono py-0.5" style={{ paddingLeft: depth * 16 }}>
+        <span className="text-slate-600">·</span>
+        <span className="text-slate-300">{node.name}</span>
+        <span className="text-slate-600">{node.size}B</span>
+        <span className="text-slate-500">{node.perm}</span>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-[11px] font-mono py-0.5 text-cyan-400" style={{ paddingLeft: depth * 16 }}>
+        <FolderTree size={11} /> {node.name}/
+      </div>
+      {node.children.map((c) => <FsNode key={c.name} node={c} depth={depth + 1} />)}
+    </div>
+  );
+}
+
+function FilesystemTab({ sim, createFile, deleteLastFile }) {
+  const used = sim.filesystem.blocks.filter((b) => b).length;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-4">
+        <Panel title="Directory tree" icon={FolderTree} accent="teal" className="col-span-2">
+          <FsNode node={sim.filesystem.tree} />
+          <div className="flex gap-2 mt-3">
+            <button onClick={createFile} className="px-2.5 py-1 rounded-md border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 text-[11px] flex items-center gap-1"><Plus size={11} />create file</button>
+            <button onClick={deleteLastFile} className="px-2.5 py-1 rounded-md border border-rose-500/40 text-rose-300 bg-rose-500/10 text-[11px] flex items-center gap-1"><Trash2 size={11} />delete last</button>
+          </div>
+        </Panel>
+        <Panel title="Disk block bitmap" icon={Database} accent="teal">
+          <div className="grid grid-cols-8 gap-1">
+            {sim.filesystem.blocks.map((b, i) => (
+              <div key={i} className={`aspect-square rounded ${b ? "bg-cyan-500/60" : "bg-slate-800"}`} title={`block ${i}`} />
+            ))}
+          </div>
+          <div className="text-[11px] text-slate-400 mt-2">{used}/{sim.filesystem.blocks.length} blocks used</div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- network tab --------------------------- */
+
+function NetworkTab({ sim, sendPacket }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <StatCard label="Packets sent" value={sim.network.sent} accent="cyan" />
+        <StatCard label="Packets received" value={sim.network.recv} accent="emerald" />
+        <StatCard label="In flight" value={sim.network.packets.filter((p) => !p.delivered).length} accent="amber" />
+      </div>
+
+      <Panel title="Sockets" icon={NetworkIcon} accent="indigo">
+        <table className="w-full text-[11px] font-mono">
+          <thead><tr className="text-slate-500 text-left border-b border-slate-800"><th className="py-1.5">proto</th><th>local</th><th>remote</th><th>state</th></tr></thead>
+          <tbody>
+            {sim.network.sockets.map((s) => (
+              <tr key={s.id} className="border-b border-slate-900 hover:bg-slate-800/30 transition-colors">
+                <td className="py-1.5"><Badge accent={s.proto === "TCP" ? "cyan" : "violet"}>{s.proto}</Badge></td>
+                <td className="text-slate-300">{s.local}</td>
+                <td className="text-slate-400">{s.remote}</td>
+                <td className="text-emerald-400">{s.state}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => sendPacket("TCP")} className="px-2.5 py-1 rounded-md border border-cyan-500/40 text-cyan-300 bg-cyan-500/10 text-[11px]">Send TCP packet</button>
+          <button onClick={() => sendPacket("UDP")} className="px-2.5 py-1 rounded-md border border-violet-500/40 text-violet-300 bg-violet-500/10 text-[11px]">Send UDP packet</button>
+        </div>
+      </Panel>
+
+      <Panel title="Packets in flight" icon={Activity} accent="indigo">
+        <div className="space-y-2">
+          {sim.network.packets.length === 0 && <div className="text-slate-600 italic text-xs">no active packets</div>}
+          {sim.network.packets.map((p) => (
+            <div key={p.id} className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-slate-500 w-16">{p.proto}#{p.id}</span>
+              <div className="flex-1 h-1.5 bg-slate-800 rounded-full relative overflow-hidden">
+                <div className={`absolute top-0 h-full w-2 rounded-full ${p.delivered ? "bg-emerald-400" : "bg-cyan-400"}`} style={{ left: `${clamp(p.progress, 0, 1) * 97}%` }} />
+              </div>
+              <span className="text-[10px] text-slate-500 w-24 truncate">{p.to}</span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+/* --------------------------- AI assistant tab --------------------------- */
+
+function AiTab({ sim, chatInput, setChatInput, askAI }) {
+  return (
+    <div className="space-y-4">
+      <Panel title="AI recommendations feed" icon={Sparkles} accent="violet">
+        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+          {sim.aiRecs.length === 0 && <div className="text-slate-600 italic text-xs">no recommendations yet</div>}
+          {sim.aiRecs.map((r, i) => (
+            <div key={i} className={`text-[11px] rounded-md px-2.5 py-1.5 border ${
+              r.type === "crit" ? "border-rose-500/30 bg-rose-500/5 text-rose-300" :
+              r.type === "warn" ? "border-amber-500/30 bg-amber-500/5 text-amber-300" :
+              "border-violet-500/30 bg-violet-500/5 text-violet-300"}`}>
+              <span className="text-slate-500 font-mono mr-1.5">t{r.t}</span>{r.msg}
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="Ask the kernel AI" icon={Brain} accent="violet">
+        <div className="h-64 overflow-y-auto space-y-2 mb-3 pr-1">
+          {sim.chatLog.map((m, i) => (
+            <div key={i} className={`text-[12px] px-3 py-1.5 rounded-lg max-w-[85%] ${m.from === "ai" ? "bg-violet-500/10 border border-violet-500/25 text-violet-200" : "bg-slate-800 text-slate-200 ml-auto text-right"}`}>
+              {m.text}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") askAI(); }}
+            placeholder='Try "why did pid 3 run" or "deadlock risk"'
+            className="flex-1 bg-slate-900 border border-slate-800 rounded-md px-3 py-1.5 text-xs outline-none focus:border-violet-500/50"
+          />
+          <button onClick={askAI} className="px-3 py-1.5 rounded-md bg-violet-500/15 border border-violet-500/40 text-violet-300 text-xs flex items-center gap-1"><Send size={12} />Ask</button>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<AIKernelOS />);
+</script>
+</body>
+</html>
