@@ -306,16 +306,17 @@ function ProgressBar({ value, max, accent = "cyan", h = "h-1.5" }) {
 }
 
 function Sparkline({ data, width = 240, height = 48, color = "#22d3ee", fill = true }) {
-  if (!data || data.length < 2) return <svg width={width} height={height} />;
+  const svgWidth = typeof width === "number" ? width : 240;
+  if (!data || data.length < 2) return <svg width="100%" height={height} viewBox={`0 0 ${svgWidth} ${height}`} className="max-w-full" />;
   const max = Math.max(1, ...data);
   const min = Math.min(...data);
   const range = Math.max(0.001, max - min);
-  const step = width / (data.length - 1);
+  const step = svgWidth / (data.length - 1);
   const pts = data.map((v, i) => [i * step, height - ((v - min) / range) * (height - 4) - 2]);
   const line = pts.map((p) => p.join(",")).join(" ");
-  const area = `0,${height} ` + line + ` ${width},${height}`;
+  const area = `0,${height} ` + line + ` ${svgWidth},${height}`;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <svg width="100%" height={height} viewBox={`0 0 ${svgWidth} ${height}`} className="max-w-full" preserveAspectRatio="none">
       {fill && <polygon points={area} fill={color} opacity="0.12" />}
       <polyline points={line} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
@@ -983,16 +984,16 @@ function AIKernelOS() {
   };
 
   return (
-    <div className="w-full min-h-[720px] bg-slate-950 text-slate-100 rounded-2xl overflow-hidden border border-slate-800 flex flex-col font-sans">
+    <div className="w-full min-h-screen sm:min-h-[720px] bg-slate-950 text-slate-100 rounded-none border-0 overflow-hidden sm:rounded-2xl sm:border sm:border-slate-800 flex flex-col font-sans">
       <TopBar
         sim={sim} running={running} setRunning={setRunning}
         speedMs={speedMs} setSpeedMs={setSpeedMs}
         accent={SUBSYSTEM_ACCENT[activeTab] || "cyan"}
       />
       <div className={`h-[2px] w-full ${colorClasses(SUBSYSTEM_ACCENT[activeTab] || "cyan").bg} opacity-60 transition-colors duration-300`} />
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
         <SideNav activeTab={activeTab} setActiveTab={setActiveTab} />
-        <div className="flex-1 min-w-0 overflow-y-auto p-4">
+        <div className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4">
           {activeTab === "dashboard" && <DashboardTab sim={sim} />}
           {activeTab === "scheduler" && (
             <SchedulerTab
@@ -1084,7 +1085,7 @@ function HeartbeatDot({ alive, accent = "emerald", size = 7 }) {
 function TopBar({ sim, running, setRunning, speedMs, setSpeedMs, accent }) {
   const c = colorClasses(accent);
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-slate-900/90">
+    <div className="flex flex-col gap-3 px-4 py-3 border-b border-slate-800 bg-slate-900/90 sm:flex-row sm:items-center sm:justify-between sm:py-2.5">
       <div className="flex items-center gap-3">
         <div className="relative w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/30 flex items-center justify-center">
           <Brain size={16} className="text-violet-400" />
@@ -1096,7 +1097,7 @@ function TopBar({ sim, running, setRunning, speedMs, setSpeedMs, accent }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2.5">
         <div className="hidden md:flex items-center gap-3 font-mono text-[11px] text-slate-400 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-1.5">
           <span className="flex items-center gap-1.5">
             <HeartbeatDot alive={running} accent={running ? "emerald" : "slate"} size={6} />
@@ -1130,8 +1131,8 @@ function TopBar({ sim, running, setRunning, speedMs, setSpeedMs, accent }) {
 
 function SideNav({ activeTab, setActiveTab }) {
   return (
-    <div className="w-48 shrink-0 border-r border-slate-800 bg-slate-900/40 py-2 flex flex-col">
-      <div className="flex-1">
+    <div className="w-full shrink-0 border-b border-slate-800 bg-slate-900/40 py-2 flex flex-row overflow-x-auto sm:w-48 sm:border-b-0 sm:border-r sm:flex-col sm:overflow-visible">
+      <div className="flex-1 flex sm:flex-col">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = tab.id === activeTab;
@@ -1141,7 +1142,7 @@ function SideNav({ activeTab, setActiveTab }) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`relative w-full flex items-center gap-2.5 pl-4 pr-3 py-2 text-[12px] transition-colors ${
+              className={`relative flex items-center gap-2.5 pl-4 pr-3 py-2 text-[12px] whitespace-nowrap transition-colors sm:w-full ${
                 active ? `${c.soft} ${c.text}` : "text-slate-400 hover:bg-slate-800/40 hover:text-slate-200"
               }`}
             >
@@ -1152,7 +1153,7 @@ function SideNav({ activeTab, setActiveTab }) {
           );
         })}
       </div>
-      <div className="px-4 py-2.5 border-t border-slate-800/80">
+      <div className="px-4 py-2.5 border-t border-slate-800/80 hidden sm:block">
         <div className="text-[9px] uppercase tracking-wider text-slate-600">kernel engine</div>
         <div className="text-[10px] font-mono text-slate-500">v1.0 · microkernel-sim</div>
       </div>
@@ -1177,7 +1178,7 @@ function SchedulerRing({ sim }) {
   const running = sim.processes.find((p) => p.pid === sim.runningPid);
   const hubColor = running ? PID_HEX[running.color] : "#334155";
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="max-w-[220px] h-auto" style={{ maxWidth: 220 }}>
       <defs>
         <filter id="hubGlow" x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="4.5" result="blur" />
@@ -1212,7 +1213,7 @@ function DashboardTab({ sim }) {
   const faultRate = (sim.memory.faults + sim.memory.hits) ? round1((sim.memory.faults / (sim.memory.faults + sim.memory.hits)) * 100) : 0;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard label="CPU util (avg)" value={`${cpuAvg}%`} accent="cyan" icon={Cpu} />
         <StatCard label="Ready queue" value={sim.readyQueue.length} accent="cyan" icon={Activity} />
         <StatCard label="Page faults" value={`${faultRate}%`} accent="emerald" sub={`${sim.memory.faults} total`} icon={Layers} />
@@ -1221,7 +1222,7 @@ function DashboardTab({ sim }) {
         <StatCard label="Deadlock risk" value={`${round1(sim.deadlock.riskScore)}%`} accent={sim.deadlock.riskScore > 55 ? "rose" : "emerald"} icon={ShieldAlert} />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Panel title="Scheduler ring" icon={Cpu} accent="cyan" className="col-span-1">
           <div className="flex flex-col items-center">
             <SchedulerRing sim={sim} />
@@ -1238,8 +1239,8 @@ function DashboardTab({ sim }) {
         </Panel>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Panel title="Kernel log" icon={Monitor} accent="slate" className="col-span-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Panel title="Kernel log" icon={Monitor} accent="slate" className="col-span-1 xl:col-span-2">
           <LogList items={sim.kernelLog.slice().reverse()} />
         </Panel>
         <Panel title="AI recommendations" icon={Sparkles} accent="violet">
@@ -1286,7 +1287,7 @@ function SchedulerTab({ sim, schedulerAlgo, setSchedulerAlgo, quantum, setQuantu
 
       {schedulerAlgo === "AI" && (
         <Panel title="AI burst regressor" icon={Brain} accent="violet">
-          <div className="grid grid-cols-3 gap-3 text-xs">
+          <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
             <div className="font-mono text-slate-300">w0 = {round2(sim.burstModel.w[0])}</div>
             <div className="font-mono text-slate-300">w1 (wait) = {round2(sim.burstModel.w[1])}</div>
             <div className="font-mono text-slate-300">w2 (hist.avg) = {round2(sim.burstModel.w[2])}</div>
@@ -1360,7 +1361,7 @@ function MemoryTab({ sim, replacementAlgo, setReplacementAlgo }) {
         ))}
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Faults" value={sim.memory.faults} accent="rose" />
         <StatCard label="Hits" value={sim.memory.hits} accent="emerald" />
         <StatCard label="Fault rate" value={`${rate}%`} accent="amber" />
@@ -1368,7 +1369,7 @@ function MemoryTab({ sim, replacementAlgo, setReplacementAlgo }) {
       </div>
 
       <Panel title={`Physical frames (${NUM_FRAMES})`} icon={Layers} accent="emerald">
-        <div className="grid grid-cols-8 gap-2">
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
           {sim.memory.frames.map((f, i) => {
             const c = f ? colorClasses(sim.processes.find((p) => p.pid === f.pid)?.color || "blue") : null;
             return (
@@ -1404,7 +1405,7 @@ function IpcTab({ sim, msgFrom, setMsgFrom, msgTo, setMsgTo, msgText, setMsgText
   const active = sim.processes.filter((p) => p.state !== "terminated");
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Panel title="Pipe" icon={MessageSquare} accent="sky">
           <div className="text-[11px] text-slate-400 mb-2">buffer {sim.ipc.pipe.buffer}/{sim.ipc.pipe.cap}</div>
           <ProgressBar value={sim.ipc.pipe.buffer} max={sim.ipc.pipe.cap} accent="sky" />
@@ -1480,7 +1481,7 @@ function InterruptsTab({ sim }) {
 function DevicesTab({ sim }) {
   const d = sim.devices;
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <Panel title="Disk" icon={HardDrive} accent="orange">
         <div className="text-[11px] text-slate-400 mb-1">head @ cylinder {d.disk.head}/{d.disk.totalCyl}</div>
         <ProgressBar value={d.disk.head} max={d.disk.totalCyl} accent="orange" />
@@ -1519,7 +1520,7 @@ function DeadlockTab({ sim, runBankers, grantRequest, releaseAll }) {
   const avail = total.map((tv, j) => tv - allocation.reduce((a, row) => a + row[j], 0));
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total R0/R1/R2" value={total.join("/")} accent="cyan" />
         <StatCard label="Available" value={avail.join("/")} accent="emerald" />
         <StatCard label="AI risk score" value={`${round1(riskScore)}%`} accent={riskScore > 55 ? "rose" : "emerald"} />
@@ -1591,16 +1592,16 @@ function FilesystemTab({ sim, createFile, deleteLastFile }) {
   const used = sim.filesystem.blocks.filter((b) => b).length;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
-        <Panel title="Directory tree" icon={FolderTree} accent="teal" className="col-span-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Panel title="Directory tree" icon={FolderTree} accent="teal" className="col-span-1 xl:col-span-2">
           <FsNode node={sim.filesystem.tree} />
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-col gap-2 mt-3 sm:flex-row">
             <button onClick={createFile} className="px-2.5 py-1 rounded-md border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 text-[11px] flex items-center gap-1"><Plus size={11} />create file</button>
             <button onClick={deleteLastFile} className="px-2.5 py-1 rounded-md border border-rose-500/40 text-rose-300 bg-rose-500/10 text-[11px] flex items-center gap-1"><Trash2 size={11} />delete last</button>
           </div>
         </Panel>
         <Panel title="Disk block bitmap" icon={Database} accent="teal">
-          <div className="grid grid-cols-8 gap-1">
+          <div className="grid grid-cols-6 gap-1 sm:grid-cols-8">
             {sim.filesystem.blocks.map((b, i) => (
               <div key={i} className={`aspect-square rounded ${b ? "bg-cyan-500/60" : "bg-slate-800"}`} title={`block ${i}`} />
             ))}
@@ -1617,7 +1618,7 @@ function FilesystemTab({ sim, createFile, deleteLastFile }) {
 function NetworkTab({ sim, sendPacket }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Packets sent" value={sim.network.sent} accent="cyan" />
         <StatCard label="Packets received" value={sim.network.recv} accent="emerald" />
         <StatCard label="In flight" value={sim.network.packets.filter((p) => !p.delivered).length} accent="amber" />
@@ -1637,7 +1638,7 @@ function NetworkTab({ sim, sendPacket }) {
             ))}
           </tbody>
         </table>
-        <div className="flex gap-2 mt-3">
+        <div className="flex flex-col gap-2 mt-3 sm:flex-row">
           <button onClick={() => sendPacket("TCP")} className="px-2.5 py-1 rounded-md border border-cyan-500/40 text-cyan-300 bg-cyan-500/10 text-[11px]">Send TCP packet</button>
           <button onClick={() => sendPacket("UDP")} className="px-2.5 py-1 rounded-md border border-violet-500/40 text-violet-300 bg-violet-500/10 text-[11px]">Send UDP packet</button>
         </div>
@@ -1688,7 +1689,7 @@ function AiTab({ sim, chatInput, setChatInput, askAI }) {
             </div>
           ))}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <input
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
